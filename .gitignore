@@ -1,7 +1,7 @@
 tags
 *\.swp
 blib
-debian/libwww-bbb-api-perl*
+debian/libwww-bbb-perl*
 debian/files
 inc
 Makefile
