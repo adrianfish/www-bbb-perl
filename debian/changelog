@@ -1,3 +1,9 @@
+libwww-bbb-perl (0.03) unstable; urgency=low
+
+  * Added getTotalParticipants
+
+ -- Adrian Fish <a.fish@lancaster.ac.uk>  Wed, 21 May 2014 13:27:38 +0100
+
 libwww-bbb-perl (0.02) unstable; urgency=low
 
   * Initial release
