@@ -224,9 +224,11 @@ WWW::BBB::API - Perl interface to BigBlueButton API system
 
 =head1 DESCRIPTION
 
-=head1 AUTHOR
+=head1 AUTHORS
 
-Emiliano Bruni, E<lt>info@ebruni.it<gt>
+Emiliano Bruni, E<lt>info@ebruni.itE<gt>
+
+Adrian Fish, E<lt>a.fish@lancaster.ac.ukE<gt>
 
 =head1 COPYRIGHT AND LICENSE
 
