@@ -9,121 +9,181 @@ use Digest::SHA qw(sha1_hex);
 use XML::Simple;
 use LWP::Simple;
 
-our $VERSION = '0.02';
+our $VERSION = '0.03';
 
 my %fields = (
-								salt	=> undef,
-								host	=> undef,
-								path	=> 'bigbluebutton/api/',
+    salt => undef,
+    host => undef,
+    path => 'bigbluebutton/api/'
 );
 
 my %api = (
-						'join'    => [qw/fullName meetingID password/],
-						'create'  => [qw/name meetingID attendeePW moderatorPW/],
+    'join' => [qw/fullName meetingID password/],
+    'create' => [qw/name meetingID attendeePW moderatorPW/],
+    'getMeetingInfo' => [qw/meetingID password/]
 );
 
 sub new {
-	my ($proto,%options) = @_;
-	my $class = ref($proto) || $proto;
-	my $self = {%fields};
-	while (my ($key,$value) = each(%options)) {
-		if (exists($fields{$key})) {
-			$self->{$key} = $value if (defined $value);
-		} else {
-			die ref($class) . "::new: invalid option '$key'\n";
-		}
-	}
-	foreach (keys(%fields)) {
-	die ref($class) . "::new: must specify value for $_" 
-		if (!defined $self->{$_});
-	}
-	bless $self, $class;
-	return $self;
+
+    my ($proto, %options) = @_;
+    my $class = ref($proto) || $proto;
+    my $self = {%fields};
+    while (my ($key, $value) = each(%options)) {
+        if (exists($fields{$key})) {
+            $self->{$key} = $value if (defined $value);
+        } else {
+            die ref($class) . "::new: invalid option '$key'\n";
+        }
+    }
+
+    # All the undef values in fields must be supplied by the caller
+    foreach (keys(%fields)) {
+        unless (defined $self->{$_}) {
+            die ref($class) . "::new: must specify value for $_" 
+        }
+    }
+
+    bless $self, $class;
+    return $self;
 }
 
 sub join {
-	my $self	= shift;
-	$self->cmd(&_subName);
-	my %form;
-	foreach (@{$api{$self->cmd}}) {
-		$form{$_} = $self->$_;
-	}
-  my $uri = $self->_newUri;
-	$uri->query_form(\%form);
-	$form{checksum} = $self->_checksum($uri->query);
-	$uri->query_form(\%form);
-	return $uri->as_string;
+
+    my $self = shift;
+    $self->cmd(&_subName);
+    my %form;
+    foreach (@{$api{$self->cmd}}) {
+        $form{$_} = $self->$_;
+    }
+    my $uri = $self->_newUri;
+    $uri->query_form(\%form);
+    $form{checksum} = $self->_checksum($uri->query);
+    $uri->query_form(\%form);
+    return $uri->as_string;
 }
 
 sub create {
-  my $self  = shift;
-	$self->cmd(&_subName);
-	my %form;
-	foreach (@{$api{$self->cmd}}) {
-		$form{$_} = $self->$_;
-	}
-  # a bug in 0.71 disable audio conference unless voiceBridge
-  # is not set
-  $form{voiceBridge} = '00000' unless exists($form{voiceBridge});
-  my $uri = $self->_newUri;
-	$uri->query_form(\%form);
-	$form{checksum} = $self->_checksum($uri->query);
-	$uri->query_form(\%form);
-	return $uri->as_string;
+
+    my $self  = shift;
+    $self->cmd(&_subName);
+    my %form;
+    foreach (@{$api{$self->cmd}}) {
+        $form{$_} = $self->$_;
+    }
+    # a bug in 0.71 disable audio conference unless voiceBridge is not set
+    $form{voiceBridge} = '00000' unless exists($form{voiceBridge});
+    my $uri = $self->_newUri;
+    $uri->query_form(\%form);
+    $form{checksum} = $self->_checksum($uri->query);
+    $uri->query_form(\%form);
+    return $uri->as_string;
 }
 
 sub getMeetings {
-	my $self	= shift;
-	$self->cmd(&_subName);
-	my %form 	= (random => $self->_random_string(12));
-	my $apiUrl	= $self->_apiUrl(%form);
-	my $xml		= get($apiUrl);
-	croak("Unable to fetch getMeetings api at " . $self->{host}) unless($xml);
-	my $obj		= XMLin($xml);
+
+    my $self = shift;
+    $self->cmd(&_subName);
+    my %form = (random => $self->_random_string(12));
+	my $apiUrl = $self->_apiUrl(%form);
+    my $xml = get($apiUrl);
+    croak("getMeetings call on '" . $self->{host} . "' failed.") unless($xml);
+    my $obj = XMLin($xml);
 	return $obj;
 }
 
+sub getMeetingInfo {
+
+    my $self = shift;
+    my $options = shift;
+    $self->cmd(&_subName);
+    my %form;
+    foreach (@{$api{$self->cmd}}) {
+        $form{$_} = $options->{$_};
+    }
+    my $apiUrl = $self->_apiUrl(%form);
+    my $xml = get($apiUrl);
+    croak("getMeetingInfo call on '" . $self->{host} . "' failed.") unless ($xml);
+    my $obj = XMLin($xml);
+	return $obj;
+}
+
+sub getTotalParticipants {
+
+    my $self = shift;
+
+    my $meetings = $self->getMeetings->{meetings}->{meeting};
+
+    my $count = 0;
+
+    if (defined($meetings)) {
+        if (ref($meetings) eq 'ARRAY') {
+            foreach my $meeting (@$meetings) {
+                my $info = $self->getMeetingInfo(
+                    {
+                        meetingID => $meeting->{meetingID},
+                        password => $meeting->{moderatorPW}
+                    } );
+                $count += $info->{participantCount};
+            }
+        } else {
+            my $info = $self->getMeetingInfo(
+                {
+                    meetingID => $meetings->{meetingID},
+                    password => $meetings->{moderatorPW}
+                } );
+            $count += $info->{participantCount};
+        }
+    }
+
+    return $count;
+}
+
 sub _apiUrl {
-	my $self	= shift;
-	my %form	= @_;
-  	my $uri 	= $self->_newUri;
-	$uri->query_form(\%form);
-	$form{checksum} = $self->_checksum($uri->query);
-	$uri->query_form(\%form);
-	return $uri->as_string;
+
+    my $self = shift;
+    my %form = @_;
+    my $uri = $self->_newUri;
+    $uri->query_form(\%form);
+    $form{checksum} = $self->_checksum($uri->query);
+    $uri->query_form(\%form);
+    return $uri->as_string;
 }
 
 sub _newUri {
-  my $self  = shift;
-  my $uri       = new URI();
-  $uri->scheme('http');
-  $uri->host($self->host);
-  $uri->path($self->path . $self->cmd);
-  return $uri;
+
+    my $self = shift;
+    my $uri = new URI();
+    $uri->scheme('http');
+    $uri->host($self->host);
+    $uri->path($self->path . $self->cmd);
+    return $uri;
 }
 
 sub _checksum {
-	my $self	= shift;
-	my $qs		= shift;
 
-	my $salt	= $self->salt;
-	my $cmd		= $self->cmd;
+    my $self = shift;
+    my $qs = shift;
 
-	my $checksum_string = $cmd . $qs . $salt;
-	return sha1_hex($checksum_string);
+    my $salt = $self->salt;
+    my $cmd = $self->cmd;
+
+    my $checksum_string = $cmd . $qs . $salt;
+    return sha1_hex($checksum_string);
 }
 
-sub _subName  { (split(/::/,(caller(1))[3]))[-1] }
+# Gets the name of the calling subroutine.
+sub _subName { (split(/::/,(caller(1))[3]))[-1] }
 
 sub _random_string {
-	my $self	= shift;
-	my $length	= shift;
-	my @chars=('a'..'z','A'..'Z','0'..'9');
-	my $random_string;
-	foreach (1..$length) {
-		$random_string.=$chars[rand @chars];
-	}
-	return $random_string;
+
+    my $self	= shift;
+    my $length	= shift;
+    my @chars=('a'..'z','A'..'Z','0'..'9');
+    my $random_string;
+    foreach (1..$length) {
+        $random_string.=$chars[rand @chars];
+    }
+    return $random_string;
 }
 
 sub cmd { my $s = shift; if (@_) { $s->{cmd} = shift; } return $s->{cmd}; }
@@ -148,12 +208,21 @@ WWW::BBB::API - Perl interface to BigBlueButton API system
 =head1 SYNOPSIS
 
   use WWW::BBB::API;
+
   my $bbb = new WWW::BBB::API(salt => $salt, host => $host);
+
+  # Get all the meetings on this server
   my $meetings = $bbb->getMeetings;
 
+  # Get the total number of participants across all meetings
+  my $totalParticipants = $bbb->getTotalParticipants;
+
+  my $info = $bbb->getMeetingInfo( {
+        meetingID => 'MEETINGID',
+        password => 'MODERATOR PASSWORD'
+    } );
 
 =head1 DESCRIPTION
-
 
 =head1 AUTHOR
 
